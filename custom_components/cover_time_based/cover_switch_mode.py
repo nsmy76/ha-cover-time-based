@@ -67,6 +67,37 @@ class SwitchModeCover(SwitchCoverTimeBased):
             return None
         return self._external_switch_on()
 
+    async def async_added_to_hass(self):
+        """Also adopt a direction relay that is already ON at startup."""
+        await super().async_added_to_hass()
+        self._adopt_latched_relay_at_startup()
+
+    def _adopt_latched_relay_at_startup(self) -> None:
+        """Record a direction relay found ON at startup as held by a wall switch.
+
+        The integration's own moves always end with both relays off, and a
+        relay that only comes online after startup is caught by the
+        unavailable -> on transition in _handle_external_state_change. What
+        that misses is a relay whose state is already restored as ON before
+        the listeners are registered: without this, a wall switch latched
+        before a Home Assistant restart would not be known as holding, and
+        block_while_external would let commands through until it is flipped.
+        A restart in the middle of one of our own moves leaves its relay ON as
+        well and is treated the same way - the safe side for a latched relay.
+        """
+        if self.hass is None:
+            return
+        for entity_id in (self._open_switch_entity_id, self._close_switch_entity_id):
+            state = self.hass.states.get(entity_id) if entity_id else None
+            if state is not None and state.state == "on":
+                _LOGGER.debug(
+                    "_adopt_latched_relay_at_startup :: %s is on, treating it as"
+                    " held by a wall switch",
+                    entity_id,
+                )
+                self._external_on_switch = entity_id
+                return
+
     def _forget_external_switch(self) -> None:
         """An HA command went ahead: the relays it drives are no longer the
         wall switch's, even when it turns the same relay back on."""

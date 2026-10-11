@@ -395,3 +395,43 @@ def test_pause_option_in_state_attributes(make_cover):
     attr = make_cover(pause_on_external_reversal=True).extra_state_attributes
     assert attr["pause_on_external_reversal"] is True
     assert make_cover().extra_state_attributes["pause_on_external_reversal"] is False
+
+
+# ---------------------------------------------------------------------------
+# Relay already latched when Home Assistant starts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_relay_on_at_startup_is_adopted_as_wall_switch_hold(make_cover):
+    cover = make_cover(block_while_external=True)
+    stub_switches(cover, on=("switch.close",))
+
+    cover._adopt_latched_relay_at_startup()
+
+    assert cover._external_switch_holding() == "switch.close"
+    with pytest.raises(CoverBlockedByExternalSwitchError):
+        cover._refuse_if_blocked_by_external_switch("open_cover")
+
+
+@pytest.mark.asyncio
+async def test_no_relay_on_at_startup_records_nothing(make_cover):
+    cover = make_cover(block_while_external=True)
+    stub_switches(cover)
+
+    cover._adopt_latched_relay_at_startup()
+
+    assert cover._external_on_switch is None
+
+
+@pytest.mark.asyncio
+async def test_async_added_to_hass_runs_the_adoption(make_cover):
+    cover = make_cover(block_while_external=True)
+    stub_switches(cover, on=("switch.open",))
+
+    with patch(
+        "custom_components.cover_time_based.cover_base.async_track_state_change_event"
+    ):
+        await cover.async_added_to_hass()
+
+    assert cover._external_switch_holding() == "switch.open"
